@@ -4,15 +4,26 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"mv_db/internal/config"
+	"mv_db/network"
 	"os"
 	"strings"
 
-	"mv_db/network"
+	"go.uber.org/zap"
 )
 
 func main() {
-	addr := "127.0.0.1:3223"
-	client := network.NewTCPClient(addr)
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		log.Printf("Can't load config.yaml (%v). Use default values.", err)
+		cfg = config.NewDefaultConfig()
+	}
+	logger.Info("Config is loaded:", zap.Object("config", cfg))
+
+	client := network.NewTCPClient(cfg.Network.Address)
 
 	if err := client.Connect(); err != nil {
 		log.Fatalf("could not connect to server: %v", err)
