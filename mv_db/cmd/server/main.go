@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"mv_db/internal/config"
 	"mv_db/internal/database"
 	"mv_db/internal/database/compute"
 	"mv_db/internal/database/engine"
@@ -17,11 +18,15 @@ import (
 )
 
 func main() {
-	// Потом переделдать на чтение из конфига
-	addr := "127.0.0.1:3223"
-
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
+
+	cfg, err := config.LoadConfig("config.yaml")
+	if err != nil {
+		log.Printf("Can't load config.yaml (%v). Use default values.", err)
+		cfg = config.NewDefaultConfig()
+	}
+	logger.Info("Config is loaded:", zap.Object("config", cfg))
 
 	eng := engine.NewEngine()
 	store, err := storage.NewStorage(eng, logger)
@@ -38,7 +43,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	server := network.NewTCPServer(addr, db, logger)
+	var options []network.TCPServerOption
+	if cfg.Network.MaxConnections != 0 {
+		logger.Info("add max connactions: %v", zap.Int("max_connections", cfg.Network.MaxConnections))
+		options = append(options, network.WithServerMaxConnectionsNumber(uint(cfg.Network.MaxConnections)))
+	}
+	server := network.NewTCPServer(logger, cfg.Network.Address, db, options...)
 	if err := server.Start(ctx); err != nil {
 		logger.Fatal("server error", zap.Error(err))
 	}

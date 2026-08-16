@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"mv_db/internal/database"
+	"mv_db/internal/concurrency"
+
+	// "mv_db/internal/database"
 	"net"
 
 	"go.uber.org/zap"
@@ -12,16 +14,33 @@ import (
 
 type TCPServer struct {
 	address string
-	db      *database.Database
-	logger  *zap.Logger
+	// db             *database.Database
+	db             DBlayer
+	logger         *zap.Logger
+	maxConnections int
+	semaphore      concurrency.Semaphore
 }
 
-func NewTCPServer(address string, db *database.Database, logger *zap.Logger) *TCPServer {
-	return &TCPServer{
+type DBlayer interface {
+	HandleQuery(ctx context.Context, queryStr string) string
+}
+
+func NewTCPServer(logger *zap.Logger, address string, db DBlayer, options ...TCPServerOption) *TCPServer { //db *database.Database
+	server := &TCPServer{
 		address: address,
 		db:      db,
 		logger:  logger,
 	}
+
+	for _, option := range options {
+		option(server)
+	}
+
+	if server.maxConnections != 0 {
+		server.semaphore = concurrency.NewSemaphore(server.maxConnections)
+	}
+
+	return server
 }
 
 func (s *TCPServer) Start(ctx context.Context) error {
@@ -49,7 +68,12 @@ func (s *TCPServer) Start(ctx context.Context) error {
 				continue
 			}
 		}
-		go s.handleConnection(ctx, conn)
+
+		s.semaphore.Acquire()
+		go func(connection net.Conn) {
+			defer s.semaphore.Release()
+			s.handleConnection(ctx, connection)
+		}(conn)
 	}
 }
 
