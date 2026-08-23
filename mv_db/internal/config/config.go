@@ -54,6 +54,7 @@ type Config struct {
 	Engine  EngineConfig  `yaml:"engine"`
 	Network NetworkConfig `yaml:"network"`
 	Logging LoggingConfig `yaml:"logging"`
+	WAL     *WALConfig    `yaml:"wal"`
 }
 
 type EngineConfig struct {
@@ -72,6 +73,13 @@ type LoggingConfig struct {
 	Output string `yaml:"output"`
 }
 
+type WALConfig struct {
+	FlushingBatchLength  int           `yaml:"flushing_batch_length"`
+	FlushingBatchTimeout time.Duration `yaml:"flushing_batch_timeout"`
+	MaxSegmentSize       string        `yaml:"max_segment_size"`
+	DataDirectory        string        `yaml:"data_directory"`
+}
+
 func NewDefaultConfig() *Config {
 	return &Config{
 		Engine: EngineConfig{
@@ -87,6 +95,7 @@ func NewDefaultConfig() *Config {
 			Level:  "info",
 			Output: "stdout",
 		},
+		WAL: nil, // WAL явно отключен по умолчанию
 	}
 }
 
@@ -106,5 +115,52 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to decode yaml: %w", err)
 	}
 
+	// Если секция wal присутствует в файле, проверяем и заполняем дефолты для пустых полей
+	if cfg.WAL != nil {
+		if cfg.WAL.FlushingBatchLength == 0 {
+			cfg.WAL.FlushingBatchLength = 100
+		}
+		if cfg.WAL.FlushingBatchTimeout == 0 {
+			cfg.WAL.FlushingBatchTimeout = 10 * time.Millisecond
+		}
+		if cfg.WAL.MaxSegmentSize == "" {
+			cfg.WAL.MaxSegmentSize = "10MB"
+		}
+		if cfg.WAL.DataDirectory == "" {
+			cfg.WAL.DataDirectory = "/data/mv_db/wal"
+		}
+
+		// Валидируем корректность строки размера сегмента (например, "10MB")
+		if _, err := ParseSizeInBytes(cfg.WAL.MaxSegmentSize); err != nil {
+			return nil, fmt.Errorf("invalid wal.max_segment_size: %w", err)
+		}
+	}
+
 	return cfg, nil
+}
+
+func ParseSizeInBytes(sizeStr string) (int64, error) {
+	str := strings.ToUpper(strings.TrimSpace(sizeStr))
+	var multiplier int64 = 1
+
+	switch {
+	case strings.HasSuffix(str, "GB"):
+		multiplier = 1024 * 1024 * 1024
+		str = strings.TrimSuffix(str, "GB")
+	case strings.HasSuffix(str, "MB"):
+		multiplier = 1024 * 1024
+		str = strings.TrimSuffix(str, "MB")
+	case strings.HasSuffix(str, "KB"):
+		multiplier = 1024
+		str = strings.TrimSuffix(str, "KB")
+	case strings.HasSuffix(str, "B"):
+		str = strings.TrimSuffix(str, "B")
+	}
+
+	parsed, err := strconv.ParseInt(strings.TrimSpace(str), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse size string '%s': %w", sizeStr, err)
+	}
+
+	return parsed * multiplier, nil
 }

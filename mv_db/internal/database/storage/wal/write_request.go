@@ -1,0 +1,30 @@
+package wal
+
+import "mv_db/internal/concurrency"
+
+type WriteRequest struct {
+	log     Log
+	promise concurrency.PromiseError
+}
+
+func NewWriteRequest(_ int64, commandID int, args []string) WriteRequest {
+	return WriteRequest{
+		log: Log{
+			CommandID: commandID,
+			Arguments: args,
+		},
+		promise: concurrency.NewPromise[error](),
+	}
+}
+
+func (l *WriteRequest) Log() Log {
+	return l.log
+}
+
+func (l *WriteRequest) SetResponse(err error) {
+	l.promise.Set(err)
+}
+
+func (l *WriteRequest) FutureResponse() concurrency.FutureError {
+	return l.promise.GetFuture()
+}

@@ -17,6 +17,15 @@ func (c *Config) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	if err := enc.AddObject("logging", &c.Logging); err != nil {
 		return err
 	}
+
+	if c.WAL != nil {
+		if err := enc.AddObject("wal", c.WAL); err != nil {
+			return err
+		}
+	} else {
+		enc.AddString("wal", "disabled") // Явно пишем в лог, что WAL выключен
+	}
+
 	return nil
 }
 
@@ -39,5 +48,13 @@ func (n *NetworkConfig) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 func (l *LoggingConfig) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	enc.AddString("level", l.Level)
 	enc.AddString("output", l.Output)
+	return nil
+}
+
+func (w *WALConfig) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	enc.AddInt("flushing_batch_length", w.FlushingBatchLength)
+	enc.AddDuration("flushing_batch_timeout", w.FlushingBatchTimeout)
+	enc.AddString("max_segment_size", w.MaxSegmentSize)
+	enc.AddString("data_directory", w.DataDirectory)
 	return nil
 }
